@@ -1,0 +1,25 @@
+# Also applies when this folder is copied into its own GitHub repository.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+.terraform.tfstate.lock.info
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!*.tfvars.json.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.env
+.env.*
+!.env.example
+.aws/
+*.pem
+*.key
