@@ -20,6 +20,8 @@ variable "parameters" {
     description   = optional(string, "Managed by Terraform")
     value_version = optional(number, 1)
     key_id        = optional(string)
+    prefix        = optional(string)
+    tags          = optional(map(string), {})
   }))
   nullable = false
 
@@ -41,6 +43,15 @@ variable "parameters" {
   validation {
     condition     = alltrue([for p in var.parameters : p.key_id == null || p.type == "SecureString"])
     error_message = "key_id is only supported for SecureString parameters."
+  }
+
+  validation {
+    condition = alltrue([for p in var.parameters : p.prefix == null ? true : (
+      can(regex("^/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$", p.prefix)) &&
+      !can(regex("(?i)^/(aws|ssm)", p.prefix)) &&
+      length(split("/", trim(p.prefix, "/"))) <= 14
+    )])
+    error_message = "Each prefix must have a leading slash, valid path segments, at most 14 levels, and no reserved aws/ssm prefix."
   }
 }
 

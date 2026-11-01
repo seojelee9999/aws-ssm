@@ -12,6 +12,39 @@
 
 ## 실행
 
+### AWS SSO로 GHCR 인증 정보 저장
+
+현재 provider 코드는 SSO 프로필을 그대로 사용할 수 있습니다. `aws configure sso`를 실행한 환경에서 프로필 이름을 지정하세요. 이미 로그인되어 있다면 다시 로그인할 필요는 없으며, 세션이 만료되었을 때 `aws sso login --profile "$AWS_PROFILE"`을 실행합니다.
+
+```bash
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+export AWS_PROFILE=homelab # 사용할 SSO 프로필명
+export AWS_REGION=ap-northeast-2 # SSM을 생성할 리전
+aws sts get-caller-identity
+```
+
+출력에서 대상 계정과 역할을 확인하세요. 기존 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 환경변수가 설정되어 있으면 프로필 대신 사용될 수 있으므로 SSO를 사용할 터미널에서는 해제하세요. SSO 로그인 리전과 SSM 생성 리전은 서로 다를 수 있습니다. 다른 컴퓨터나 컨테이너에서 실행할 경우 그 환경에도 SSO 설정과 로그인이 필요합니다.
+
+새 구성이라면 아래 예제를 복사합니다. 이미 `terraform.tfvars`가 있으면 덮어쓰지 말고 필요한 항목을 병합하세요. 기존에 관리하던 파라미터를 목록에서 제거하면 삭제 계획이 생깁니다.
+
+```bash
+cp -n terraform.ghcr.tfvars.example terraform.tfvars
+```
+
+예제는 `/homelab/ghcr/GHCR_USERNAME`, `/homelab/ghcr/GHCR_TOKEN`을 모두 `SecureString`으로 저장합니다. 경로와 태그는 환경에 맞게 수정하세요. `GHCR_USERNAME`에는 토큰을 발급한 GitHub 사용자명을 넣습니다. GHCR용 토큰은 **Personal access token (classic)**을 사용하며, 이미지 pull에는 `read:packages`, push에는 `write:packages` 권한이 필요합니다. 조직에서 GitHub SSO를 요구하면 토큰도 해당 조직에 승인해야 합니다. 이는 AWS SSO 로그인과 별개입니다. [GitHub 공식 인증 안내](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry)
+
+`scripts/apply-ghcr.sh`를 실행하면 GitHub 사용자명과 토큰을 입력받습니다. 토큰 입력은 화면에 표시되지 않습니다. 이미 export된 `GHCR_USERNAME`, `GHCR_TOKEN`이 있으면 해당 값은 다시 묻지 않고 사용합니다. 기본 프로필은 `homelab`, 기본 리전은 `ap-northeast-2`이며 `AWS_PROFILE`, `AWS_REGION`으로 변경할 수 있습니다. AWS 인증 확인 → Terraform 초기화·검증 → 계획 표시 순서로 진행하고, `yes`를 입력하면 적용합니다. GHCR 두 항목 전용 스크립트이므로 `terraform.tfvars`의 `parameters`에도 이 두 항목만 있어야 합니다.
+
+환경변수를 미리 설정하지 않아도 다음 명령 하나로 실행할 수 있습니다. 토큰 프롬프트에는 토큰 이름이 아닌 발급받은 실제 토큰 값을 붙여 넣으세요. 토큰을 명령줄에 직접 적지 않으므로 셸 기록에 남지 않습니다.
+
+```bash
+bash scripts/apply-ghcr.sh
+```
+
+스크립트에서 입력한 값은 해당 실행 안에서만 사용하며 종료 후 부모 터미널에 남지 않습니다. 기존 터미널에서 직접 export했다면 작업 후 `unset GHCR_USERNAME GHCR_TOKEN`으로 해제하세요. 스크립트는 `source`하지 말고 Bash로 실행하세요. 비대화형 실행에서는 두 환경변수를 모두 export해야 합니다. 토큰 교체 시에는 `terraform.tfvars`의 `GHCR_TOKEN.value_version`을 올리고 새 토큰으로 다시 실행하세요. SSM에 저장된 인증 정보는 이미지 pull을 수행하는 서버나 배포 도구가 별도로 읽어 사용해야 합니다.
+
+### 일반 환경변수 저장
+
 ```bash
 cd aws-ssm
 cp terraform.tfvars.example terraform.tfvars
@@ -58,6 +91,18 @@ unset TF_VAR_parameter_values
 
 ## 값 변경
 
+항목별로 다른 경로와 태그가 필요하면 `parameters`의 해당 항목에 `prefix`와 `tags`를 지정할 수 있습니다. 지정하지 않은 항목은 공통 `parameter_prefix`를 그대로 사용합니다. 항목별 태그는 같은 이름의 공통 태그를 덮어씁니다.
+
+```hcl
+CLOUDFLARE_TOKEN = {
+  prefix        = "/homelab/cloudflare"
+  tags          = { Service = "cloudflare" }
+  value_version = 1
+}
+```
+
+기존 파라미터의 경로를 변경하면 교체가 계획될 수 있으므로 적용 전에 삭제 항목을 확인하세요.
+
 1. 노트북의 원본 환경변수를 수정하고 위 JSON 변환 블록을 다시 실행합니다.
 2. 해당 항목의 `value_version`을 `1` → `2`처럼 올립니다.
 3. `terraform plan -input=false -out=ssm.tfplan`으로 새 계획을 만들고 `terraform apply ssm.tfplan`을 실행합니다.
@@ -94,6 +139,7 @@ git diff --cached --stat
 
 ## 공식 문서
 
+- [AWS CLI SSO 프로필 설정 및 로그인](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sso.html)
 - [AWS provider 환경변수 인증](https://registry.terraform.io/providers/hashicorp/aws/latest/docs#environment-variables)
 - [SSM parameter와 value_wo](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ssm_parameter)
 - [Terraform 쓰기 전용 인수](https://developer.hashicorp.com/terraform/language/manage-sensitive-data/write-only)

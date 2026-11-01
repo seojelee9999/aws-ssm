@@ -42,6 +42,30 @@ run "reject_empty_value" {
   expect_failures = [var.parameter_values]
 }
 
+run "individual_prefix_and_tags" {
+  command = plan
+
+  variables {
+    parameters = {
+      DB_HOST = { type = "String" }
+      DB_PASSWORD = {
+        prefix = "/myapp/secrets"
+        tags   = { Service = "secrets" }
+      }
+    }
+  }
+
+  assert {
+    condition     = output.parameter_names["DB_PASSWORD"] == "/myapp/secrets/DB_PASSWORD" && output.parameter_names["DB_HOST"] == "/myapp/test/DB_HOST"
+    error_message = "Per-parameter prefixes must not change other paths."
+  }
+
+  assert {
+    condition     = aws_ssm_parameter.this["DB_PASSWORD"].tags["Service"] == "secrets"
+    error_message = "Per-parameter tags must be applied."
+  }
+}
+
 run "reject_unlisted_value" {
   command = plan
 
